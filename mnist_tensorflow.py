@@ -151,29 +151,128 @@ plt.show()
 ## 2. Validation: Show 1 misclassified digit from each class.
 """
 
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
+predictions = model.predict(x_test)
+predicted_classes = np.argmax(predictions, axis=1)
+true_classes = np.argmax(y_test, axis=1)
 
-datagen = ImageDataGenerator(rotation_range=10, zoom_range=0.1)
-datagen.fit(x_train.reshape(-1, 28, 28, 1))
+misclassified_indices = np.where(predicted_classes != true_classes)[0]
 
-model_aug = build_model([512, 256, 128], 'relu', 0.4, 0.0005)
-history_aug = model_aug.fit(datagen.flow(x_train, y_train_cat, batch_size=128),
-                            epochs=15, validation_data=(x_test, y_test_cat))
+misclassified_by_class = {}
+for index in misclassified_indices:
+    true_class = true_classes[index]
+    if true_class not in misclassified_by_class:
+        misclassified_by_class[true_class] = index
+
+plt.figure(figsize=(12, 8))
+for i in range(10):
+    if i in misclassified_by_class:
+        index = misclassified_by_class[i]
+        plt.subplot(2, 5, i + 1)
+        plt.imshow(x_test[index].reshape(28, 28), cmap='gray')
+        plt.title(f'True: {i}, Pred: {predicted_classes[index]}')
+        plt.axis('off')
+plt.tight_layout()
+plt.show()
 
 """## 3. Suggest & Implement workflow improvements, aside hyperparameter tuning. Can you think of any ways to increase the overall accuracy of the Neural Network?"""
 
-print("""
-1a. Το MNIST είναι καλό dataset για εισαγωγή στη βαθιά μάθηση επειδή είναι καθαρό, ισορροπημένο και έχει επαρκές μέγεθος.
+# Rebuild the model with Batch Normalization layers
+def build_model_with_bn(units, activation, dropout_rate):
+    model = tf.keras.Sequential([
+        tf.keras.layers.Input(shape=(784,), name='input'),
+        tf.keras.layers.Dense(units=units[0], name='hidden-1'),
+        tf.keras.layers.BatchNormalization(), # Add Batch Normalization
+        tf.keras.layers.Activation(activation), # Apply activation after BN
+        tf.keras.layers.Dropout(dropout_rate), # Add Dropout
 
-1b. Όχι όλα τα pixels δεν είναι το ίδιο σημαντικά. Πολλά περιφερειακά pixels είναι πάντα μαύρα (0) και δεν συνεισφέρουν στην πρόβλεψη.
+        tf.keras.layers.Dense(units=units[1], name='hidden-2'),
+        tf.keras.layers.BatchNormalization(), # Add Batch Normalization
+        tf.keras.layers.Activation(activation), # Apply activation after BN
+        tf.keras.layers.Dropout(dropout_rate), # Add Dropout
 
-1c. Τα Βαθιά Νευρωνικά Δίκτυα είναι κατάλληλα όταν το πρόβλημα έχει μεγάλη πολυπλοκότητα, υψηλής διάστασης δεδομένα, και απαιτεί εξαγωγή μη γραμμικών σχέσεων.
+        tf.keras.layers.Dense(units=units[2], name='hidden-3'),
+        tf.keras.layers.BatchNormalization(), # Add Batch Normalization
+        tf.keras.layers.Activation(activation), # Apply activation after BN
+        tf.keras.layers.Dropout(dropout_rate), # Add Dropout
 
-1d. Ναι, η Βαθιά Μάθηση μπορεί να εφαρμοστεί και στους τρεις τομείς της ML:
- - Supervised (πχ ταξινόμηση εικόνων),
- - Unsupervised (πχ autoencoders, clustering με embeddings),
- - Reinforcement Learning (πχ DQN για παιχνίδια ή ρομποτική).
-""")
+        tf.keras.layers.Dense(units=10, activation='softmax', name='outputs')
+    ])
+    return model
+
+# Best hyperparameters from previous step
+best_units = [512, 256, 128]
+best_activation = 'relu'
+best_dropout_rate = 0.4
+best_learning_rate = 0.0005
+best_epochs = 15 # Can potentially increase this with Early Stopping
+
+# Convert y_train and y_test back to original labels for ImageDataGenerator compatibility
+y_train_labels = tf.argmax(y_train, axis=1).numpy()
+y_test_labels = tf.argmax(y_test, axis=1).numpy()
+
+# Reshape x_train and x_test for Data Augmentation
+x_train_reshaped = x_train.reshape(-1, 28, 28, 1)
+x_test_reshaped = x_test.reshape(-1, 28, 28, 1)
+
+# Data Augmentation setup
+# We can increase the augmentation parameters slightly
+datagen = ImageDataGenerator(
+    rotation_range=15,       # increased rotation
+    zoom_range=0.15,         # increased zoom
+    width_shift_range=0.1,   # add width shift
+    height_shift_range=0.1   # add height shift
+)
+
+# Fit the data generator on the training data
+datagen.fit(x_train_reshaped)
+
+# Re-one-hot encode labels for training the model
+y_train_cat = tf.one_hot(y_train_labels, depth=10)
+y_test_cat = tf.one_hot(y_test_labels, depth=10)
+
+
+# Build the model with Batch Normalization and best hyperparameters
+model_improved = build_model_with_bn(best_units, best_activation, best_dropout_rate)
+
+# Compile the model
+# Keep the original optimizer as requested in the problem context, but note that changing it could be a workflow improvement
+optimizer_improved = tf.keras.optimizers.SGD(learning_rate=best_learning_rate)
+model_improved.compile(optimizer=optimizer_improved, loss=loss, metrics=metrics)
+
+model_improved.summary()
+
+# Train the model using Data Augmentation
+history_improved = model_improved.fit(
+    datagen.flow(x_train_reshaped, y_train_cat, batch_size=128),
+    epochs=best_epochs,
+    validation_data=(x_test_reshaped, y_test_cat)
+)
+
+# Display Loss and Accuracy per Training Epoch for the improved model
+train_loss_improved = history_improved.history['loss']
+val_loss_improved = history_improved.history['val_loss']
+train_acc_improved = history_improved.history['accuracy']
+val_acc_improved = history_improved.history['val_accuracy']
+
+plt.plot(train_loss_improved, label='Train Loss (Improved)')
+plt.plot(val_loss_improved, label='Validation Loss (Improved)')
+plt.title('Improved Neural Network Loss per epoch')
+plt.ylabel('Categorical Cross-Entropy')
+plt.xlabel('Epochs')
+plt.xlim(0, best_epochs)
+plt.ylim(0, 1)
+plt.legend()
+plt.show()
+
+plt.plot(train_acc_improved, label='Train Accuracy (Improved)')
+plt.plot(val_acc_improved, label='Validation Accuracy (Improved)')
+plt.title('Improved Neural Network Accuracy per epoch')
+plt.ylabel('Accuracy')
+plt.xlabel('Epochs')
+plt.xlim(0, best_epochs)
+plt.ylim(0, 1)
+plt.legend()
+plt.show()
 
 """## 4. Upload the exercise in your GitHub repository. Google Colab can instantly deploy this notebook into a Github repository."""
 
